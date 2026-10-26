@@ -1,0 +1,693 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Little Days ♡</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#faeee3;color:#614d49;font-family:monospace}
+header{text-align:center;padding:10px}
+h2{margin:0;font-size:22px;letter-spacing:2px}
+#subtitle{font-size:11px;margin-top:5px;color:#b07896}
+#game{display:block;width:100%;max-width:800px;height:auto;margin:auto;image-rendering:pixelated}
+#status{text-align:center;font-size:11px;min-height:30px;padding:8px}
+#dialog{display:none;position:fixed;bottom:155px;left:3%;right:3%;max-width:750px;margin:auto;background:#fff8ee;border:4px solid #94766b;border-radius:12px;padding:13px;z-index:5;box-shadow:4px 4px #d9bcae}
+#speaker{color:#bd7299;font-weight:bold;margin-bottom:8px;font-size:14px}
+#words{font-size:13px;line-height:1.8;min-height:42px}
+#next{display:block;margin:8px 0 0 auto;padding:10px 20px;background:#f3c2d7;border:2px solid #bc88a0;border-radius:8px;font:bold 12px monospace}
+#controls{max-width:800px;margin:auto;padding:4px 12px 12px;display:flex;align-items:end;justify-content:space-between;gap:6px}
+.pad{display:grid;grid-template-columns:58px 58px 58px;grid-template-rows:52px 52px 52px;gap:4px}
+.ctrl{font-size:23px;font-weight:bold;background:#fff6e9;border:2px solid #b69a8b;border-radius:12px;color:#70564f;touch-action:none;user-select:none}
+.up{grid-column:2;grid-row:1}.left{grid-column:1;grid-row:2}.down{grid-column:2;grid-row:2}.right{grid-column:3;grid-row:2}
+.actions{display:flex;flex-direction:column;gap:7px}
+.action{min-width:105px;min-height:46px;padding:10px 7px;border:2px solid #b8829b;background:#f4c4d8;color:#68485b;border-radius:10px;font:bold 12px monospace}
+#transform{background:#ead7fc;border-color:#ad8bc8}
+#dayButton{background:#d9edce;border-color:#8eaf7e}
+button{cursor:pointer;touch-action:manipulation}
+button:active{filter:brightness(.93)}
+[hidden]{display:none!important}
+#hint{text-align:center;font-size:10px;color:#a18b7f;padding-bottom:8px}
+@media(min-width:650px){
+.pad{grid-template-columns:66px 66px 66px;grid-template-rows:58px 58px 58px}
+#dialog{bottom:165px}
+}
+</style>
+</head>
+<body>
+<header>
+<h2>little days ♡</h2>
+<div id="subtitle">a tiny pixel adventure</div>
+</header>
+
+<canvas id="game" width="640" height="400"></canvas>
+<div id="status">ayo kenalan dengan tetangga baru!</div>
+
+<div id="dialog">
+<div id="speaker"></div>
+<div id="words"></div>
+<button id="next">lanjut ▸</button>
+</div>
+
+<div id="controls">
+<div class="pad">
+<button class="ctrl up" data-dir="up">▲</button>
+<button class="ctrl left" data-dir="left">◀</button>
+<button class="ctrl down" data-dir="down">▼</button>
+<button class="ctrl right" data-dir="right">▶</button>
+</div>
+<div class="actions">
+<button class="action" id="interact">NGOBROL</button>
+<button class="action" id="transform" hidden>✨ BERUBAH!</button>
+<button class="action" id="dayButton" hidden>DAY 2 →</button>
+</div>
+</div>
+<div id="hint">gerakkan karakter dengan tombol arah</div>
+
+<script>
+'use strict';
+
+const canvas=document.getElementById('game');
+const ctx=canvas.getContext('2d');
+ctx.imageSmoothingEnabled=false;
+const $=id=>document.getElementById(id);
+
+let day=1,scene='outside',dialog=null,dialogIndex=0;
+let moving={};
+let met=new Set();
+let transformed=false,battle=false,won=false;
+let inaTalked=false,invited=false,attacks=0;
+let entranceTriggered=false,lastTime=0;
+
+const player={x:320,y:330,speed:145};
+
+const startPositions={
+rara:{x:100,y:180,name:'rara'},
+alya:{x:320,y:140,name:'alya'},
+mei:{x:530,y:180,name:'mei'},
+halimah:{x:170,y:280,name:'halimah'},
+adiba:{x:435,y:280,name:'adiba'},
+ina:{x:320,y:180,name:'ina'},
+ninja:{x:550,y:155,name:'ninja'},
+samurai:{x:520,y:270,name:'samurai'}
+};
+const people={};
+for(const n in startPositions)people[n]={...startPositions[n]};
+
+const dialogue={
+rara:[
+'oh, halo..',
+'kamu orang baru ya disini? aku rara',
+'udah ya kenalannya aku capek...'
+],
+alya:[
+'haloo, kamu orang baru yaa?',
+'kenalin ak alyaa, btw jangan ngeliat aku ya waktu chatan sama ayangg!',
+'kamu kenalan sama yang lain aja dulu :D'
+],
+mei:[
+'halooo!! kamu baru ya disini, kenalin aku mei',
+'kamu udah kenalan sama yang lain belum?',
+'btw kamu suka apa??'
+],
+halimah:[
+'haii',
+'anak baru? kenalin aku halimah',
+'udah ya aku mau samperin wife ku'
+],
+adiba:['hi, aku adiba'],
+ina:['oh kamu anak baru yang itu ya?','kenalin aku ina'],
+invite:['eh halo! ayo ikut ke rumah alya']
+};
+
+function rect(x,y,w,h,color){
+ctx.fillStyle=color;
+ctx.fillRect(Math.round(x),Math.round(y),w,h);
+}
+function label(s,x,y,size=11,color='#fff8ed'){
+ctx.fillStyle=color;
+ctx.font=`${size}px monospace`;
+ctx.fillText(s,x,y);
+}
+function tree(x,y){
+rect(x-5,y+10,10,23,'#90674a');
+rect(x-18,y-8,36,27,'#559763');
+rect(x-13,y-17,26,19,'#6db77b');
+rect(x-8,y-18,7,6,'#8acb91');
+rect(x+7,y-8,6,5,'#8acb91');
+}
+function house(x,y,color,name){
+rect(x-5,y-5,96,61,'#d8b9a2');
+rect(x-10,y-12,106,17,color);
+rect(x+4,y+5,78,46,'#f8e5cc');
+rect(x+37,y+26,18,25,'#a17a63');
+rect(x+10,y+11,17,15,'#acdadd');
+rect(x+59,y+11,17,15,'#acdadd');
+rect(x+17,y+11,3,15,'#eff1dd');
+rect(x+10,y+17,17,3,'#eff1dd');
+label(name,x+8,y-18,10);
+}
+function drawOutside(){
+rect(0,0,640,400,'#a8d99d');
+rect(0,35,640,72,'#c5e5b0');
+rect(0,107,640,293,'#88c982');
+rect(0,277,640,123,'#d9c7a6');
+rect(0,291,640,4,'#c3ac8d');
+
+for(let i=0;i<13;i++)tree(18+i*52,45+(i%3)*13);
+
+house(40,125,'#df9ba8','RARA');
+house(272,70,'#9997b9','ALYA');
+house(489,125,'#efb2cc','MEI');
+house(120,239,'#86b3e5','HALIMAH');
+house(390,239,'#d4b397','ADIBA');
+
+rect(300,335,40,5,'#b5a080');
+rect(304,345,32,5,'#b5a080');
+}
+function drawRoom(){
+rect(0,0,640,400,'#f5dfc6');
+rect(0,0,640,26,'#c69a84');
+rect(0,26,640,315,'#f4e5d1');
+rect(0,341,640,59,'#c9a084');
+for(let i=0;i<8;i++)rect(i*80,341,2,59,'#b78a72');
+
+// jendela
+rect(40,50,112,94,'#a47c68');
+rect(47,57,98,80,'#b4e0e2');
+rect(94,57,4,80,'#fff0d9');
+rect(47,94,98,4,'#fff0d9');
+
+// TV
+rect(425,55,132,94,'#a47d68');
+rect(433,62,116,69,'#38353e');
+rect(441,69,100,55,'#829e98');
+rect(452,78,78,38,'#91aaa0');
+rect(482,149,18,10,'#805e50');
+rect(454,158,73,6,'#805e50');
+
+// sofa
+rect(180,177,280,69,'#a96e8d');
+rect(170,189,23,59,'#b77a98');
+rect(447,189,23,59,'#b77a98');
+rect(191,183,258,54,'#e3a4c1');
+rect(314,184,4,52,'#c884a6');
+rect(202,244,10,9,'#88675a');
+rect(426,244,10,9,'#88675a');
+
+// meja dan dekorasi
+rect(38,294,126,12,'#ad866b');
+rect(50,274,102,20,'#d8b89c');
+rect(65,253,21,21,'#74a77a');
+rect(95,253,21,21,'#d99bb7');
+rect(73,248,5,8,'#eac7d6');
+rect(103,248,5,8,'#f1d4df');
+
+rect(190,285,265,35,'#e7c4ce');
+rect(200,292,245,20,'#f1d9d7');
+}
+
+function drawPerson(p,isPlayer=false){
+const x=Math.round(p.x),y=Math.round(p.y),n=p.name;
+if(x < -50||x>690||y < -50||y>450)return;
+
+if(!isPlayer)rect(x-12,y+23,24,5,'#719c68');
+
+// kaki
+rect(x-8,y+15,6,8,'#49343b');
+rect(x+3,y+15,6,8,'#49343b');
+
+// baju
+const outfits={
+rara:'#aaa9b1',
+alya:'#29262d',
+mei:'#f5a0c9',
+halimah:'#75acec',
+adiba:'#e5cfb8',
+ina:'#e7c0da',
+ninja:'#29242f',
+samurai:'#b45b54'
+};
+const shirt=isPlayer
+?(transformed?'#f6e5ef':'#f39cc5')
+:(outfits[n]||'#c5a7a7');
+
+rect(x-11,y-2,22,20,shirt);
+rect(x-15,y,4,13,shirt);
+rect(x+11,y,4,13,shirt);
+
+// kulit
+const skin=isPlayer?'#34201c':'#edc1a5';
+rect(x-9,y-21,18,20,skin);
+rect(x-12,y-16,3,8,skin);
+rect(x+9,y-16,3,8,skin);
+
+if(!isPlayer){
+switch(n){
+case 'rara': // rambut lurus sebahu
+rect(x-11,y-27,22,8,'#171719');
+rect(x-12,y-22,5,27,'#171719');
+rect(x+7,y-22,5,27,'#171719');
+rect(x-8,y-29,16,4,'#171719');
+break;
+
+case 'alya': // cepol dan kacamata kotak
+rect(x-11,y-26,22,8,'#171719');
+rect(x-11,y-22,5,10,'#171719');
+rect(x+7,y-22,5,10,'#171719');
+rect(x-4,y-31,9,8,'#171719');
+rect(x-8,y-29,16,5,'#171719');
+break;
+
+case 'mei': // pendek dan tebal
+rect(x-13,y-28,26,13,'#171719');
+rect(x-13,y-23,5,12,'#171719');
+rect(x+8,y-23,5,12,'#171719');
+rect(x-9,y-30,18,5,'#171719');
+break;
+
+case 'adiba': // medium curly
+rect(x-12,y-28,24,8,'#171719');
+rect(x-13,y-24,5,8,'#171719');
+rect(x+8,y-24,5,8,'#171719');
+rect(x-13,y-16,4,10,'#171719');
+rect(x+9,y-16,4,10,'#171719');
+rect(x-13,y-30,7,5,'#171719');
+rect(x+6,y-30,7,5,'#171719');
+rect(x-12,y-6,4,6,'#171719');
+rect(x+8,y-6,4,6,'#171719');
+break;
+
+case 'halimah':
+case 'ina':
+rect(x-11,y-27,22,8,'#171719');
+rect(x-12,y-22,5,15,'#171719');
+rect(x+7,y-22,5,15,'#171719');
+break;
+
+case 'ninja':
+rect(x-12,y-28,24,9,'#24202a');
+rect(x-12,y-22,5,15,'#24202a');
+rect(x+7,y-22,5,15,'#24202a');
+rect(x-9,y-15,18,5,'#d7d2dc');
+break;
+
+case 'samurai':
+rect(x-12,y-28,24,8,'#28232a');
+rect(x-12,y-22,5,12,'#28232a');
+rect(x+7,y-22,5,12,'#28232a');
+rect(x-13,y-32,26,5,'#bcb7c0');
+rect(x-9,y-7,18,4,'#30242a');
+break;
+}
+
+// mata
+rect(x-5,y-12,3,3,'#382722');
+rect(x+3,y-12,3,3,'#382722');
+
+// kacamata kotak Alya
+if(n==='alya'){
+rect(x-9,y-15,8,7,'#19171b');
+rect(x+1,y-15,8,7,'#19171b');
+rect(x-1,y-13,2,2,'#19171b');
+rect(x-7,y-13,4,3,'#f7f4ed');
+rect(x+3,y-13,4,3,'#f7f4ed');
+}
+label(n,x-n.length*3,y-36,10);
+}else{
+// karakter utama botak, kulit gelap, baju pink
+rect(x-5,y-12,3,3,'#201716');
+rect(x+3,y-12,3,3,'#201716');
+
+if(transformed){
+// rambut hitam panjang
+rect(x-13,y-29,26,8,'#171619');
+rect(x-15,y-25,5,30,'#171619');
+rect(x+10,y-25,5,30,'#171619');
+rect(x-15,y-1,5,13,'#171619');
+rect(x+10,y-1,5,13,'#171619');
+
+// gaun
+rect(x-13,y-1,26,22,'#fff0f4');
+rect(x-17,y+4,4,14,'#fff0f4');
+rect(x+13,y+4,4,14,'#fff0f4');
+rect(x-17,y+19,34,4,'#d98eb2');
+
+// bulu mata dan mata
+rect(x-7,y-15,5,2,'#fff');
+rect(x+3,y-15,5,2,'#fff');
+rect(x-7,y-10,3,2,'#c56b91');
+rect(x+4,y-10,3,2,'#c56b91');
+}
+}
+}
+
+function render(){
+ctx.clearRect(0,0,640,400);
+
+if(scene==='outside'){
+drawOutside();
+
+if(day===1){
+for(const n of ['rara','alya','mei','halimah','adiba']){
+if(!met.has(n))drawPerson(people[n]);
+}
+}else{
+if(!inaTalked)drawPerson(people.ina);
+if(inaTalked&&!invited){
+drawPerson(people.mei);
+drawPerson(people.adiba);
+}
+}
+}else{
+drawRoom();
+
+if(!battle&&!won){
+drawPerson({...people.adiba,x:250,y:185});
+drawPerson({...people.alya,x:320,y:185});
+drawPerson({...people.ina,x:390,y:185});
+}
+if(battle&&!won){
+drawPerson({...people.ninja,x:player.x-55,y:player.y-12});
+drawPerson(people.samurai);
+}
+if(won){
+rect(100,65,440,110,'#fff6e9');
+rect(105,70,430,100,'#f3d9e3');
+label('YOU WIN!',245,102,27,'#ad557d');
+label('samurai game over!',224,128,14,'#76566b');
+label('terima kasih sudah bermain ♡',183,150,12,'#76566b');
+}
+}
+
+drawPerson({...player,name:'player'},true);
+}
+
+function distance(a,b){
+return Math.hypot(a.x-b.x,a.y-b.y);
+}
+function nearest(names,limit=70){
+let best=null,dmin=Infinity;
+for(const n of names){
+const d=distance(player,people[n]);
+if(d<dmin){dmin=d;best=n}
+}
+return dmin<=limit?best:null;
+}
+function status(s){
+$('status').textContent=s;
+}
+
+function say(name,arr,callback){
+dialog={name,arr,callback};
+dialogIndex=0;
+$('speaker').textContent=name;
+$('words').textContent=arr[0];
+$('dialog').style.display='block';
+}
+
+$('next').onclick=()=>{
+if(!dialog)return;
+dialogIndex++;
+
+if(dialogIndex<dialog.arr.length){
+$('words').textContent=dialog.arr[dialogIndex];
+return;
+}
+
+const callback=dialog.callback;
+dialog=null;
+$('dialog').style.display='none';
+if(callback)callback();
+};
+
+function interact(){
+if(dialog)return;
+
+if(scene==='outside'&&day===1){
+const n=nearest(
+['rara','alya','mei','halimah','adiba']
+.filter(name=>!met.has(name))
+);
+
+if(!n){
+status('dekati karakter yang belum kamu ajak ngobrol!');
+return;
+}
+if(n==='adiba'&&!met.has('halimah')){
+status('kenalan dengan Halimah dulu!');
+return;
+}
+
+say(n,dialogue[n],()=>{
+met.add(n);
+
+if(n==='halimah'){
+// Halimah menghampiri Adiba.
+people.halimah.x=people.adiba.x-35;
+people.halimah.y=people.adiba.y+7;
+status('halimah menghampiri adiba.');
+}else if(n==='rara'){
+status('rara masuk ke rumahnya.');
+}else{
+status(n+' selesai diajak kenalan!');
+}
+
+if(met.size===5){
+$('dayButton').hidden=false;
+status('day 1 selesai! kamu sudah kenalan dengan semuanya.');
+}
+});
+return;
+}
+
+if(scene==='outside'&&day===2){
+if(!inaTalked){
+if(distance(player,people.ina)>75){
+status('dekati Ina dulu!');
+return;
+}
+say('ina',dialogue.ina,()=>{
+inaTalked=true;
+people.ina.x=300;
+people.ina.y=120;
+people.mei.x=360;
+people.mei.y=190;
+people.adiba.x=410;
+people.adiba.y=190;
+status('Ina pergi ke rumah Alya.');
+});
+return;
+}
+
+if(!invited){
+if(!nearest(['mei','adiba'],90)){
+status('dekati Mei atau Adiba!');
+return;
+}
+say('mei & adiba',dialogue.invite,()=>{
+invited=true;
+scene='house';
+player.x=320;
+player.y=290;
+$('subtitle').textContent='day 2 — something strange';
+status('kamu masuk ke rumah Alya.');
+say('alya & teman-teman',[
+'ayo duduk dulu di sofa...',
+'eh?! SIAPA ITU?!'
+],()=>{
+beginBattle();
+});
+});
+return;
+}
+}
+
+if(scene==='house'&&battle&&!won){
+if(!transformed){
+status('tekan BERUBAH! sebelum menyerang.');
+return;
+}
+if(distance(player,people.samurai)>72){
+status('dekati samurai dulu!');
+return;
+}
+
+attacks++;
+
+if(attacks<3){
+say('samurai',[
+'serangan kena!',
+'ayo, coba lagi!'
+],()=>{
+status('serangan '+attacks+'/3. dekati samurai lagi!');
+});
+}else{
+battle=false;
+won=true;
+$('transform').hidden=true;
+say('samurai',['ugh... aku kalah!'],()=>{
+status('samurai game over. kamu menang!');
+});
+}
+return;
+}
+
+if(scene==='house'&&!battle&&!won){
+status('ada sofa, TV, dan teman-teman Alya di sini.');
+}
+}
+
+$('interact').onclick=interact;
+
+$('dayButton').onclick=()=>{
+if(day!==1||met.size!==5)return;
+
+day=2;
+scene='outside';
+met=new Set();
+player.x=320;
+player.y=330;
+inaTalked=false;
+invited=false;
+transformed=false;
+battle=false;
+won=false;
+attacks=0;
+entranceTriggered=false;
+
+for(const n of ['rara','alya','mei','halimah','adiba']){
+people[n].x=-100;
+people[n].y=-100;
+}
+people.ina.x=320;
+people.ina.y=180;
+people.mei.x=-100;
+people.mei.y=-100;
+people.adiba.x=-100;
+people.adiba.y=-100;
+
+$('dayButton').hidden=true;
+$('subtitle').textContent='day 2 — a new visitor';
+status('pagi hari. Ina datang menghampirimu.');
+};
+
+$('transform').onclick=()=>{
+if(!battle||won||transformed)return;
+
+transformed=true;
+$('transform').hidden=true;
+
+say('kamu',[
+'✨ transformasi berhasil!',
+'sekarang lawan samurai!'
+],()=>{
+status('dekati samurai lalu tekan NGOBROL untuk menyerang.');
+});
+};
+
+function beginBattle(){
+if(battle||won)return;
+
+battle=true;
+people.samurai.x=520;
+people.samurai.y=270;
+people.ninja.x=550;
+people.ninja.y=155;
+player.x=320;
+player.y=290;
+
+$('transform').hidden=false;
+
+say('ninja',[
+'BRAK!!',
+'SIAPA YANG BERANI MASUK?!',
+'samurai, maju!'
+],()=>{
+status('ninja menerobos masuk! tekan BERUBAH! lalu lawan samurai.');
+});
+}
+
+function update(dt){
+if(dialog||won)return;
+
+let dx=0,dy=0;
+if(moving.left)dx--;
+if(moving.right)dx++;
+if(moving.up)dy--;
+if(moving.down)dy++;
+
+if(dx&&dy){
+dx*=Math.SQRT1_2;
+dy*=Math.SQRT1_2;
+}
+
+player.x=Math.max(15,Math.min(625,player.x+dx*player.speed*dt));
+player.y=Math.max(42,Math.min(375,player.y+dy*player.speed*dt));
+
+if(scene==='house'&&!battle&&!won&&
+player.y<115&&!entranceTriggered){
+entranceTriggered=true;
+beginBattle();
+}
+}
+
+function loop(now){
+const dt=Math.min((now-lastTime)/1000||0,0.04);
+lastTime=now;
+update(dt);
+render();
+requestAnimationFrame(loop);
+}
+
+document.querySelectorAll('[data-dir]').forEach(button=>{
+const dir=button.dataset.dir;
+
+button.addEventListener('pointerdown',e=>{
+e.preventDefault();
+moving[dir]=true;
+try{button.setPointerCapture(e.pointerId)}catch(_){}
+});
+
+for(const eventName of [
+'pointerup','pointercancel','lostpointercapture'
+]){
+button.addEventListener(eventName,()=>{
+moving[dir]=false;
+});
+}
+});
+
+window.addEventListener('keydown',e=>{
+const keys={
+ArrowUp:'up',w:'up',
+ArrowDown:'down',s:'down',
+ArrowLeft:'left',a:'left',
+ArrowRight:'right',d:'right'
+};
+if(keys[e.key]){
+moving[keys[e.key]]=true;
+e.preventDefault();
+}
+if((e.key===' '||e.key==='Enter')&&!e.repeat){
+interact();
+}
+});
+
+window.addEventListener('keyup',e=>{
+const keys={
+ArrowUp:'up',w:'up',
+ArrowDown:'down',s:'down',
+ArrowLeft:'left',a:'left',
+ArrowRight:'right',d:'right'
+};
+if(keys[e.key])moving[keys[e.key]]=false;
+});
+
+window.addEventListener('blur',()=>{moving={};});
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
